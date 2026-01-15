@@ -2,8 +2,14 @@ import base64
 import os
 import logging
 import sys
+import uuid
+import tempfile
+import threading
+import time
 from io import BytesIO
+from pathlib import Path
 from typing import List, Tuple
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 import PIL.Image
 from dotenv import load_dotenv
@@ -28,6 +34,14 @@ logger = logging.getLogger(__name__)
 # Image generation model (nano banana pro)
 IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3-pro-image-preview")
 
+# Image storage configuration
+IMAGE_STORAGE_DIR = Path(os.environ.get("IMAGE_STORAGE_DIR", tempfile.gettempdir())) / "gemini_images"
+IMAGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+FILE_SERVER_PORT = int(os.environ.get("FILE_SERVER_PORT", "3001"))
+FILE_SERVER_HOST = os.environ.get("FILE_SERVER_HOST", "0.0.0.0")
+# Public URL base for accessing images (defaults to localhost, set to your public URL in production)
+PUBLIC_URL_BASE = os.environ.get("PUBLIC_URL_BASE", f"http://localhost:{FILE_SERVER_PORT}")
+
 # Initialize MCP server with cloud-friendly defaults (0.0.0.0 disables DNS rebinding protection)
 server = MCPServer(
     name="mcp-server-gemini-image-generator",
@@ -36,6 +50,41 @@ server = MCPServer(
     host="0.0.0.0",
     port=3000,
 )
+
+
+# ==================== File Server ====================
+
+class ImageFileHandler(SimpleHTTPRequestHandler):
+    """Custom handler to serve images from the storage directory."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(IMAGE_STORAGE_DIR), **kwargs)
+
+    def log_message(self, format, *args):
+        logger.info(f"File server: {format % args}")
+
+
+def start_file_server():
+    """Start the HTTP file server in a background thread."""
+    httpd = HTTPServer((FILE_SERVER_HOST, FILE_SERVER_PORT), ImageFileHandler)
+    logger.info(f"Starting file server on {FILE_SERVER_HOST}:{FILE_SERVER_PORT}, serving from {IMAGE_STORAGE_DIR}")
+    httpd.serve_forever()
+
+
+def save_image_to_disk(image_bytes: bytes) -> str:
+    """Save image bytes to disk and return the download URL.
+
+    Args:
+        image_bytes: Raw image bytes to save
+
+    Returns:
+        Public URL to download the image
+    """
+    filename = f"{uuid.uuid4()}.png"
+    filepath = IMAGE_STORAGE_DIR / filename
+    filepath.write_bytes(image_bytes)
+    logger.info(f"Saved image to {filepath}")
+    return f"{PUBLIC_URL_BASE}/{filename}"
 
 
 # ==================== Gemini API Interaction ====================
@@ -104,18 +153,18 @@ async def generate_image_from_text(prompt: str) -> list:
         prompt: User's text prompt describing the desired image to generate
 
     Returns:
-        Generated image and base64 string for programmatic use
+        Generated image and download URL for programmatic use
     """
     logger.info(f"Generating image from prompt: {prompt}")
 
     contents = get_image_generation_prompt(prompt)
     image_bytes = await generate_image_bytes([contents])
-    b64_string = base64.b64encode(image_bytes).decode()
+    download_url = save_image_to_disk(image_bytes)
 
-    logger.info("Image generated successfully")
+    logger.info(f"Image generated successfully, available at: {download_url}")
     return [
         Image(data=image_bytes, format="png"),
-        f"data:image/png;base64,{b64_string}"
+        f"Download URL: {download_url}"
     ]
 
 
@@ -130,22 +179,29 @@ async def transform_image(encoded_image: str, prompt: str) -> list:
         prompt: Text prompt describing the desired transformation or modifications
 
     Returns:
-        Transformed image and base64 string for programmatic use
+        Transformed image and download URL for programmatic use
     """
     logger.info(f"Transforming image with prompt: {prompt}")
 
     source_image, _ = load_image_from_base64(encoded_image)
     edit_instructions = get_image_transformation_prompt(prompt)
     image_bytes = await generate_image_bytes([edit_instructions, source_image])
-    b64_string = base64.b64encode(image_bytes).decode()
+    download_url = save_image_to_disk(image_bytes)
 
-    logger.info("Image transformed successfully")
+    logger.info(f"Image transformed successfully, available at: {download_url}")
     return [
         Image(data=image_bytes, format="png"),
-        f"data:image/png;base64,{b64_string}"
+        f"Download URL: {download_url}"
     ]
 
 
 if __name__ == "__main__":
     logger.info("Starting Gemini Image Generator MCP server...")
+
+    # Start file server in background thread
+    file_server_thread = threading.Thread(target=start_file_server, daemon=True)
+    file_server_thread.start()
+    logger.info(f"File server started on port {FILE_SERVER_PORT}")
+
+    # Start MCP server
     server.run(transport="streamable-http", host="0.0.0.0", port=3000)
