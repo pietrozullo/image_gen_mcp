@@ -4,12 +4,9 @@ import logging
 import sys
 import uuid
 import tempfile
-import threading
-import time
 from io import BytesIO
 from pathlib import Path
 from typing import List, Tuple
-from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 import PIL.Image
 from dotenv import load_dotenv
@@ -17,6 +14,7 @@ from google import genai
 from google.genai import types
 from mcp_use.server import MCPServer
 from mcp.server.fastmcp import Image
+from starlette.responses import FileResponse, Response
 
 from prompts import get_image_generation_prompt, get_image_transformation_prompt
 
@@ -37,10 +35,9 @@ IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3-pro-image-preview")
 # Image storage configuration
 IMAGE_STORAGE_DIR = Path(os.environ.get("IMAGE_STORAGE_DIR", tempfile.gettempdir())) / "gemini_images"
 IMAGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-FILE_SERVER_PORT = int(os.environ.get("FILE_SERVER_PORT", "3001"))
-FILE_SERVER_HOST = os.environ.get("FILE_SERVER_HOST", "0.0.0.0")
+SERVER_PORT = int(os.environ.get("PORT", "3000"))
 # Public URL base for accessing images (defaults to localhost, set to your public URL in production)
-PUBLIC_URL_BASE = os.environ.get("PUBLIC_URL_BASE", f"http://localhost:{FILE_SERVER_PORT}")
+PUBLIC_URL_BASE = os.environ.get("PUBLIC_URL_BASE", f"http://localhost:{SERVER_PORT}")
 
 # Initialize MCP server with cloud-friendly defaults (0.0.0.0 disables DNS rebinding protection)
 server = MCPServer(
@@ -48,27 +45,26 @@ server = MCPServer(
     version="0.1.0",
     instructions="Generate and transform images using Google's Gemini AI model",
     host="0.0.0.0",
-    port=3000,
+    port=SERVER_PORT,
 )
 
 
-# ==================== File Server ====================
+# ==================== Image File Serving ====================
 
-class ImageFileHandler(SimpleHTTPRequestHandler):
-    """Custom handler to serve images from the storage directory."""
+@server.custom_route("/images/{filename}", methods=["GET"])
+async def serve_image(request):
+    """Serve generated images from the storage directory."""
+    filename = request.path_params["filename"]
+    filepath = IMAGE_STORAGE_DIR / filename
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=str(IMAGE_STORAGE_DIR), **kwargs)
+    if not filepath.exists() or not filepath.is_file():
+        return Response("Image not found", status_code=404)
 
-    def log_message(self, format, *args):
-        logger.info(f"File server: {format % args}")
+    # Security: ensure we're serving from the expected directory
+    if not filepath.resolve().is_relative_to(IMAGE_STORAGE_DIR.resolve()):
+        return Response("Access denied", status_code=403)
 
-
-def start_file_server():
-    """Start the HTTP file server in a background thread."""
-    httpd = HTTPServer((FILE_SERVER_HOST, FILE_SERVER_PORT), ImageFileHandler)
-    logger.info(f"Starting file server on {FILE_SERVER_HOST}:{FILE_SERVER_PORT}, serving from {IMAGE_STORAGE_DIR}")
-    httpd.serve_forever()
+    return FileResponse(filepath, media_type="image/png")
 
 
 def save_image_to_disk(image_bytes: bytes) -> str:
@@ -84,7 +80,7 @@ def save_image_to_disk(image_bytes: bytes) -> str:
     filepath = IMAGE_STORAGE_DIR / filename
     filepath.write_bytes(image_bytes)
     logger.info(f"Saved image to {filepath}")
-    return f"{PUBLIC_URL_BASE}/{filename}"
+    return f"{PUBLIC_URL_BASE}/images/{filename}"
 
 
 # ==================== Gemini API Interaction ====================
@@ -197,11 +193,5 @@ async def transform_image(encoded_image: str, prompt: str) -> list:
 
 if __name__ == "__main__":
     logger.info("Starting Gemini Image Generator MCP server...")
-
-    # Start file server in background thread
-    file_server_thread = threading.Thread(target=start_file_server, daemon=True)
-    file_server_thread.start()
-    logger.info(f"File server started on port {FILE_SERVER_PORT}")
-
-    # Start MCP server
-    server.run(transport="streamable-http", host="0.0.0.0", port=3000)
+    logger.info(f"Images will be served at {PUBLIC_URL_BASE}/images/")
+    server.run(transport="streamable-http", host="0.0.0.0", port=SERVER_PORT)
