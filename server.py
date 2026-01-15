@@ -36,8 +36,8 @@ IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3-pro-image-preview")
 IMAGE_STORAGE_DIR = Path(os.environ.get("IMAGE_STORAGE_DIR", tempfile.gettempdir())) / "gemini_images"
 IMAGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 SERVER_PORT = int(os.environ.get("PORT", "3000"))
-# Public URL base for accessing images (defaults to localhost, set to your public URL in production)
-PUBLIC_URL_BASE = os.environ.get("PUBLIC_URL_BASE", f"http://localhost:{SERVER_PORT}")
+# Public URL base for accessing images
+PUBLIC_URL_BASE = os.environ.get("MCP_URL", f"http://localhost:{SERVER_PORT}")
 
 # Initialize MCP server with cloud-friendly defaults (0.0.0.0 disables DNS rebinding protection)
 server = MCPServer(
