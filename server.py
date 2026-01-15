@@ -11,7 +11,6 @@ from google import genai
 from google.genai import types
 from mcp_use.server import MCPServer
 from mcp.server.fastmcp import Image
-from mcp.server.transport_security import TransportSecuritySettings
 
 from prompts import get_image_generation_prompt, get_image_transformation_prompt
 
@@ -29,16 +28,11 @@ logger = logging.getLogger(__name__)
 # Image generation model (nano banana pro)
 IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3-pro-image-preview")
 
-# Initialize MCP server
+# Initialize MCP server with cloud-friendly defaults (0.0.0.0 disables DNS rebinding protection)
 server = MCPServer(
     name="mcp-server-gemini-image-generator",
     version="0.1.0",
-    instructions="Generate and transform images using Google's Gemini AI model"
-)
-
-# Disable DNS rebinding protection for proxy/cloud deployment
-server.settings.transport_security = TransportSecuritySettings(
-    enable_dns_rebinding_protection=False
+    instructions="Generate and transform images using Google's Gemini AI model",
 )
 
 
