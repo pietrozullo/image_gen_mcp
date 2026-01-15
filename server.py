@@ -97,26 +97,30 @@ def load_image_from_base64(encoded_image: str) -> Tuple[PIL.Image.Image, str]:
 # ==================== MCP Tools ====================
 
 @server.tool()
-async def generate_image_from_text(prompt: str) -> Image:
+async def generate_image_from_text(prompt: str) -> list:
     """Generate an image based on the given text prompt using Google's Gemini model.
 
     Args:
         prompt: User's text prompt describing the desired image to generate
 
     Returns:
-        Generated image
+        Generated image and base64 string for programmatic use
     """
     logger.info(f"Generating image from prompt: {prompt}")
 
     contents = get_image_generation_prompt(prompt)
     image_bytes = await generate_image_bytes([contents])
+    b64_string = base64.b64encode(image_bytes).decode()
 
     logger.info("Image generated successfully")
-    return Image(data=image_bytes, format="png")
+    return [
+        Image(data=image_bytes, format="png"),
+        f"data:image/png;base64,{b64_string}"
+    ]
 
 
 @server.tool()
-async def transform_image(encoded_image: str, prompt: str) -> Image:
+async def transform_image(encoded_image: str, prompt: str) -> list:
     """Transform an existing image based on the given text prompt using Google's Gemini model.
 
     Args:
@@ -126,16 +130,20 @@ async def transform_image(encoded_image: str, prompt: str) -> Image:
         prompt: Text prompt describing the desired transformation or modifications
 
     Returns:
-        Transformed image
+        Transformed image and base64 string for programmatic use
     """
     logger.info(f"Transforming image with prompt: {prompt}")
 
     source_image, _ = load_image_from_base64(encoded_image)
     edit_instructions = get_image_transformation_prompt(prompt)
     image_bytes = await generate_image_bytes([edit_instructions, source_image])
+    b64_string = base64.b64encode(image_bytes).decode()
 
     logger.info("Image transformed successfully")
-    return Image(data=image_bytes, format="png")
+    return [
+        Image(data=image_bytes, format="png"),
+        f"data:image/png;base64,{b64_string}"
+    ]
 
 
 if __name__ == "__main__":
