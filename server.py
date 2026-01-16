@@ -18,7 +18,7 @@ from google import genai
 from google.genai import types
 from mcp_use.server import MCPServer
 from mcp.server.fastmcp import Image
-from starlette.responses import FileResponse, Response
+from starlette.responses import FileResponse, Response, JSONResponse
 
 from prompts import get_image_generation_prompt, get_image_transformation_prompt
 
@@ -46,6 +46,14 @@ PUBLIC_URL_BASE = os.environ.get("MCP_URL", f"http://localhost:{SERVER_PORT}")
 # Image cleanup configuration
 IMAGE_TTL_SECONDS = int(os.environ.get("IMAGE_TTL_SECONDS", "3600"))  # Default: 1 hour
 CLEANUP_INTERVAL_SECONDS = int(os.environ.get("CLEANUP_INTERVAL_SECONDS", "300"))  # Default: 5 minutes
+
+# Image validation configuration
+MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10MB max
+ALLOWED_IMAGE_FORMATS = {'PNG', 'JPEG', 'GIF', 'WEBP', 'BMP', 'TIFF'}
+ALLOWED_IMAGE_MIME_TYPES = {
+    'image/png', 'image/jpeg', 'image/jpg', 'image/gif',
+    'image/webp', 'image/bmp', 'image/tiff'
+}
 
 # Track created images with their creation time
 _image_registry: dict[str, float] = {}
@@ -131,6 +139,84 @@ async def serve_image(request):
     return FileResponse(filepath, media_type="image/png")
 
 
+@server.custom_route("/upload", methods=["POST"])
+async def upload_image(request):
+    """Upload an image and get a URL back for use with transform_image.
+
+    Accepts multipart form data with an 'image' field.
+    Returns JSON with the image URL.
+
+    Usage:
+        curl -X POST -F "image=@/path/to/image.jpg" https://server/upload
+    """
+    try:
+        form = await request.form()
+        image_file = form.get("image")
+
+        if not image_file:
+            return JSONResponse(
+                {"error": "No image file provided. Use: curl -X POST -F 'image=@file.jpg' URL"},
+                status_code=400
+            )
+
+        # Read the uploaded file
+        image_bytes = await image_file.read()
+
+        # Check size limit
+        if len(image_bytes) > MAX_IMAGE_SIZE_BYTES:
+            return JSONResponse(
+                {"error": f"Image too large: {len(image_bytes)} bytes (max: {MAX_IMAGE_SIZE_BYTES})"},
+                status_code=400
+            )
+
+        # Validate it's actually an image (not an executable or other file)
+        try:
+            image = PIL.Image.open(BytesIO(image_bytes))
+            image.load()  # Force load to detect corrupted images
+
+            pil_format = image.format
+            if pil_format is None:
+                return JSONResponse({"error": "Could not determine image format"}, status_code=400)
+
+            if pil_format.upper() not in ALLOWED_IMAGE_FORMATS:
+                return JSONResponse(
+                    {"error": f"Unsupported image format: {pil_format}. Allowed: {ALLOWED_IMAGE_FORMATS}"},
+                    status_code=400
+                )
+        except PIL.UnidentifiedImageError:
+            return JSONResponse({"error": "File is not a valid image"}, status_code=400)
+        except Exception as e:
+            return JSONResponse({"error": f"Image validation failed: {e}"}, status_code=400)
+
+        # Save the image
+        filename = f"{uuid.uuid4()}.png"
+        filepath = IMAGE_STORAGE_DIR / filename
+
+        # Convert to PNG for consistency
+        output = BytesIO()
+        image.save(output, format="PNG")
+        filepath.write_bytes(output.getvalue())
+
+        # Register for cleanup
+        with _registry_lock:
+            _image_registry[filename] = time.time()
+
+        image_url = f"{PUBLIC_URL_BASE}/images/{filename}"
+        logger.info(f"Uploaded image saved to {filepath} (TTL: {IMAGE_TTL_SECONDS}s)")
+
+        return JSONResponse({
+            "url": image_url,
+            "filename": filename,
+            "format": pil_format,
+            "size": image.size,
+            "expires_in_seconds": IMAGE_TTL_SECONDS
+        })
+
+    except Exception as e:
+        logger.error(f"Upload failed: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 def save_image_to_disk(image_bytes: bytes) -> str:
     """Save image bytes to disk and return the download URL.
 
@@ -208,16 +294,6 @@ def load_image_from_base64(encoded_image: str) -> Tuple[PIL.Image.Image, str]:
     return source_image, image_format
 
 
-# Allowed image MIME types for validation
-ALLOWED_IMAGE_TYPES = {
-    'image/png', 'image/jpeg', 'image/jpg', 'image/gif',
-    'image/webp', 'image/bmp', 'image/tiff'
-}
-
-# Maximum image size for URL fetching (10MB)
-MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
-
-
 def validate_image_bytes(image_bytes: bytes) -> PIL.Image.Image:
     """Validate that bytes represent a valid image file.
 
@@ -241,9 +317,7 @@ def validate_image_bytes(image_bytes: bytes) -> PIL.Image.Image:
         if pil_format is None:
             raise ValueError("Could not determine image format")
 
-        pil_format_lower = pil_format.lower()
-        allowed_formats = {'png', 'jpeg', 'jpg', 'gif', 'webp', 'bmp', 'tiff'}
-        if pil_format_lower not in allowed_formats:
+        if pil_format.upper() not in ALLOWED_IMAGE_FORMATS:
             raise ValueError(f"Unsupported image format: {pil_format}")
 
         logger.info(f"Validated image: format={pil_format}, size={image.size}")
@@ -279,7 +353,7 @@ async def load_image_from_url(image_url: str) -> PIL.Image.Image:
             content_length = head_response.headers.get('content-length')
 
             # Validate content type
-            if content_type and content_type not in ALLOWED_IMAGE_TYPES:
+            if content_type and content_type not in ALLOWED_IMAGE_MIME_TYPES:
                 raise ValueError(f"URL does not point to an image. Content-Type: {content_type}")
 
             # Check size if provided
