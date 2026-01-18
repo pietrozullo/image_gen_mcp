@@ -139,6 +139,19 @@ async def serve_image(request):
     return FileResponse(filepath, media_type="image/png")
 
 
+@server.custom_route("/upload-info", methods=["GET"])
+async def upload_info(request):
+    """Return upload endpoint info."""
+    return JSONResponse({
+        "endpoint": "/upload",
+        "method": "POST",
+        "usage": "curl -X POST -F 'image=@file.jpg' URL/upload",
+        "max_size_bytes": MAX_IMAGE_SIZE_BYTES,
+        "allowed_formats": list(ALLOWED_IMAGE_FORMATS),
+        "ttl_seconds": IMAGE_TTL_SECONDS
+    })
+
+
 @server.custom_route("/upload", methods=["POST"])
 async def upload_image(request):
     """Upload an image and get a URL back for use with transform_image.
