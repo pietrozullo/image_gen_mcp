@@ -68,7 +68,7 @@ function normalizePublicBaseUrl(rawBaseUrl: string): string {
 
 const normalizedBaseUrl = normalizePublicBaseUrl(PUBLIC_BASE_URL);
 
-const server = new MCPServer({
+export const server = new MCPServer({
   name: "mcp-server-gemini-image-generator",
   title: "Gemini Image Generator",
   version: "1.0.0",
@@ -773,31 +773,48 @@ const showRecentImagesSchema = z.object({
   }
 );
 
-await fs.mkdir(IMAGE_STORAGE_DIR, { recursive: true });
+let hasStarted = false;
 
-const cleanupTimer = setInterval(() => {
-  void cleanupOldImages();
-}, CLEANUP_INTERVAL_SECONDS * 1000);
-const timerWithUnref = cleanupTimer as unknown as { unref?: () => void };
-if (typeof timerWithUnref.unref === "function") {
-  timerWithUnref.unref();
+export async function startServer(): Promise<void> {
+  if (hasStarted) {
+    return;
+  }
+  hasStarted = true;
+
+  await fs.mkdir(IMAGE_STORAGE_DIR, { recursive: true });
+
+  const cleanupTimer = setInterval(() => {
+    void cleanupOldImages();
+  }, CLEANUP_INTERVAL_SECONDS * 1000);
+  const timerWithUnref = cleanupTimer as unknown as { unref?: () => void };
+  if (typeof timerWithUnref.unref === "function") {
+    timerWithUnref.unref();
+  }
+
+  const shutdown = async () => {
+    await cleanupAllImages();
+    process.exit(0);
+  };
+
+  process.once("SIGINT", () => {
+    void shutdown();
+  });
+
+  process.once("SIGTERM", () => {
+    void shutdown();
+  });
+
+  await server.listen(SERVER_PORT);
+
+  console.log(`Gemini Image Generator MCP server running on ${normalizedBaseUrl}`);
+  console.log(`MCP endpoint: ${normalizedBaseUrl}/mcp`);
+  console.log(`Image upload endpoint: ${normalizedBaseUrl}/upload`);
 }
 
-const shutdown = async () => {
-  await cleanupAllImages();
-  process.exit(0);
-};
-
-process.once("SIGINT", () => {
-  void shutdown();
-});
-
-process.once("SIGTERM", () => {
-  void shutdown();
-});
-
-await server.listen(SERVER_PORT);
-
-console.log(`Gemini Image Generator MCP server running on ${normalizedBaseUrl}`);
-console.log(`MCP endpoint: ${normalizedBaseUrl}/mcp`);
-console.log(`Image upload endpoint: ${normalizedBaseUrl}/upload`);
+try {
+  await startServer();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`Failed to start server: ${message}`);
+  process.exit(1);
+}

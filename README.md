@@ -4,6 +4,25 @@ TypeScript `mcp-use` MCP server that generates and transforms images with Gemini
 
 Built for remote hosting with streamable HTTP (`/mcp`).
 
+## Scaffold
+
+This project is scaffolded with the latest MCP Apps template:
+
+```bash
+npx create-mcp-use-app@latest gemini-image-mcp --template mcp-apps
+```
+
+Then it is customized with Gemini image generation tools and the `image-picker` widget.
+
+```text
+.
+├── index.ts                 # MCP server/tools/routes
+├── prompts.ts               # Gemini prompt builders
+├── resources/
+│   ├── image-picker.tsx
+│   └── image-picker.css
+```
+
 ## What This Includes
 
 - `generate_image_from_text` tool (single or multiple images)

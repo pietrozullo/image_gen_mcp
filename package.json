@@ -2,8 +2,18 @@
   "name": "gemini-image-mcp",
   "type": "module",
   "version": "1.0.0",
-  "description": "Gemini image generation MCP server with an Apps SDK image picker widget",
+  "description": "Gemini image generation MCP server scaffolded from create-mcp-use-app@latest mcp-apps template",
   "license": "MIT",
+  "keywords": [
+    "mcp",
+    "mcp-apps",
+    "mcp-use",
+    "apps-sdk",
+    "uiresource",
+    "react",
+    "gemini",
+    "image-generation"
+  ],
   "main": "dist/index.js",
   "scripts": {
     "build": "mcp-use build",
