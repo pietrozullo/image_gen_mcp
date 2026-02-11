@@ -1,41 +1,20 @@
-###############################
-# Image Transformation Prompt #
-###############################
-def get_image_transformation_prompt(prompt: str) -> str:
-    """Create a detailed prompt for image transformation.
-    
-    Args:
-        prompt: text prompt
-        
-    Returns:
-        A comprehensive prompt for Gemini image transformation
-    """
-    return f"""You are an expert image editing AI. Please edit the provided image according to these instructions:
+export function getImageTransformationPrompt(prompt: string): string {
+  return `You are an expert image editing AI. Please edit the provided image according to these instructions:
 
-EDIT REQUEST: {prompt}
+EDIT REQUEST: ${prompt}
 
 IMPORTANT REQUIREMENTS:
 1. Make substantial and noticeable changes as requested
-2. Maintain high image quality and coherence 
+2. Maintain high image quality and coherence
 3. Ensure the edited elements blend naturally with the rest of the image
 4. Do not add any text to the image
 5. Focus on the specific edits requested while preserving other elements
 
-The changes should be clear and obvious in the result."""
+The changes should be clear and obvious in the result.`;
+}
 
-###########################
-# Image Generation Prompt #
-###########################
-def get_image_generation_prompt(prompt: str) -> str:
-    """Create a detailed prompt for image generation.
-    
-    Args:
-        prompt: text prompt
-        
-    Returns:
-        A comprehensive prompt for Gemini image generation
-    """
-    return f"""You are an expert image generation AI assistant specialized in creating visuals based on user requests. Your primary goal is to generate the most appropriate image without asking clarifying questions, even when faced with abstract or ambiguous prompts.
+export function getImageGenerationPrompt(prompt: string): string {
+  return `You are an expert image generation AI assistant specialized in creating visuals based on user requests. Your primary goal is to generate the most appropriate image without asking clarifying questions, even when faced with abstract or ambiguous prompts.
 
 ## CRITICAL REQUIREMENT: NO TEXT IN IMAGES
 
@@ -106,5 +85,5 @@ Before finalizing ANY image:
 
 Remember: Your success is measured by your ability to produce satisfying images without requiring additional input from users AND without including ANY text from queries in the images. Be decisive and confident in your interpretations while maintaining absolute adherence to the no-text requirement.
 
-Query: {prompt}
-"""
+Query: ${prompt}`;
+}

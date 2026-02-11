@@ -114,3 +114,10 @@ dmypy.json
 # VS Code
 .vscode/
 .idea/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.mcp-use/
